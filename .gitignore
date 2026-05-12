@@ -1,0 +1,15 @@
+# Envs locaux (ne pas committer en production)
+.env
+.env.local
+
+# Editors
+.vscode/
+.idea/
+.DS_Store
+
+# Build artifacts
+node_modules/
+dist/
+__pycache__/
+*.pyc
+*.pyo

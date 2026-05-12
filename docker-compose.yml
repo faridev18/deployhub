@@ -1,0 +1,64 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  backend:
+    build: ./deployhub-back
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - PROJECT_NAME=DeployHub API
+      - SECRET_KEY=dce581bd0556857c3773698c5576b60b3d8233274ce89c2dbf4523411b5966e6
+      - ALGORITHM=HS256
+      - ACCESS_TOKEN_EXPIRE_MINUTES=1440
+      - DATABASE_URL=sqlite:////app/data/deployhub.db
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - BACKEND_CORS_ORIGINS=http://${HOST:-localhost}:5173,http://127.0.0.1:5173
+      - DEPLOY_HOST=${HOST:-localhost}
+      - DEPLOY_PORT_RANGE_START=8090
+      - DEPLOY_PORT_RANGE_END=9000
+      - EMAIL_ENABLED=false
+      - FRONTEND_URL=http://${HOST:-localhost}:5173
+    volumes:
+      - db_data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - redis
+
+  worker:
+    build: ./deployhub-back
+    command: celery -A app.core.celery_app worker -Q deployments -c 2 --loglevel=info
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=sqlite:////app/data/deployhub.db
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - SECRET_KEY=dce581bd0556857c3773698c5576b60b3d8233274ce89c2dbf4523411b5966e6
+    volumes:
+      - db_data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - redis
+      - backend
+
+  frontend:
+    build:
+      context: ./deployhub-front
+      args:
+        VITE_API_URL: http://${HOST:-localhost}:8000
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  redis_data:
+  db_data:
