@@ -53,6 +53,55 @@ class DeploymentService:
         return tempfile.mkdtemp(prefix="deployhub_")
 
     @staticmethod
+    def _is_ignored_dir(dirname: str) -> bool:
+        return dirname in {
+            ".git",
+            "node_modules",
+            "__pycache__",
+            ".venv",
+            "venv",
+            "dist",
+            "build",
+        }
+
+    def _resolve_project_path(self, base_path: str) -> str:
+        """Trouve le dossier qui contient un Dockerfile ou un docker-compose.
+
+        Supporte les archives/depots avec un dossier parent englobant.
+        """
+        if self._get_compose_file(base_path) or os.path.exists(os.path.join(base_path, "Dockerfile")):
+            return base_path
+
+        max_depth = int(os.getenv("DEPLOY_DISCOVERY_MAX_DEPTH", "4"))
+        candidates: list[tuple[tuple[int, int, int], str]] = []
+
+        for root, dirs, files in os.walk(base_path):
+            rel = os.path.relpath(root, base_path)
+            depth = 0 if rel == "." else rel.count(os.sep) + 1
+
+            dirs[:] = [d for d in dirs if not self._is_ignored_dir(d)]
+            if depth > max_depth:
+                dirs[:] = []
+                continue
+
+            has_compose = "docker-compose.yml" in files or "docker-compose.yaml" in files
+            has_dockerfile = "Dockerfile" in files
+            if not (has_compose or has_dockerfile):
+                continue
+
+            # Priorite au dossier le plus proche de la racine et aux projets compose.
+            score = (depth, 0 if has_compose else 1, len(root))
+            candidates.append((score, root))
+
+        if not candidates:
+            raise ValueError(
+                "No Dockerfile (or docker-compose.yml) found in project root or subdirectories."
+            )
+
+        candidates.sort(key=lambda x: x[0])
+        return candidates[0][1]
+
+    @staticmethod
     def _get_compose_file(path: str) -> Optional[str]:
         for filename in ("docker-compose.yml", "docker-compose.yaml"):
             full = os.path.join(path, filename)
@@ -134,11 +183,20 @@ class DeploymentService:
             else:
                 crud.deployment.set_status(self.db, deployment=deployment, status="extracting")
                 build_logs.append(f"Extracting archive {deployment.source_url}...")
+                if not os.path.exists(deployment.source_url):
+                    raise FileNotFoundError(
+                        "Uploaded ZIP archive is no longer available. Please upload the ZIP again."
+                    )
                 with zipfile.ZipFile(deployment.source_url, "r") as zf:
                     zf.extractall(temp_dir)
 
             # 2. Build & run
-            self._build_and_run(deployment, temp_dir, build, build_logs)
+            project_path = self._resolve_project_path(temp_dir)
+            if os.path.abspath(project_path) != os.path.abspath(temp_dir):
+                rel = os.path.relpath(project_path, temp_dir)
+                build_logs.append(f"Detected deployment root in subdirectory: {rel}")
+
+            self._build_and_run(deployment, project_path, build, build_logs)
 
             crud.deployment.finalize_build(
                 self.db,
@@ -297,7 +355,14 @@ class DeploymentService:
 
 def save_upload(upload_file, suffix: str = ".zip") -> str:
     """Persist un fichier uploadé dans un endroit accessible au worker."""
-    fd, temp_path = tempfile.mkstemp(prefix="deployhub_upload_", suffix=suffix)
+    upload_dir = os.getenv("DEPLOY_UPLOAD_DIR", "/app/data/uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+
+    fd, temp_path = tempfile.mkstemp(
+        prefix="deployhub_upload_",
+        suffix=suffix,
+        dir=upload_dir,
+    )
     with os.fdopen(fd, "wb") as buf:
         shutil.copyfileobj(upload_file, buf)
     return temp_path
