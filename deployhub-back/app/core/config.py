@@ -1,28 +1,33 @@
 import os
-from typing import List
+from typing import List, Any, Dict
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
 
 load_dotenv()
 
 
-def _split_csv(value: str) -> List[str]:
-    return [item.strip() for item in value.split(",") if item.strip()]
-
-
 class Settings(BaseSettings):
-    PROJECT_NAME: str = os.getenv("PROJECT_NAME", "DeployHub API")
-    VERSION: str = os.getenv("VERSION", "1.0.0")
+    PROJECT_NAME: str = "DeployHub API"
+    VERSION: str = "1.0.0"
 
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "change-me-please-use-a-long-random-string")
-    ALGORITHM: str = os.getenv("ALGORITHM", "HS256")
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
+    SECRET_KEY: str = "change-me-please-use-a-long-random-string"
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
 
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./deployhub.db")
+    DATABASE_URL: str = "sqlite:///./deployhub.db"
 
-    BACKEND_CORS_ORIGINS: List[str] = _split_csv(
-        os.getenv("BACKEND_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
-    )
+    BACKEND_CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+    @model_validator(mode="before")
+    @classmethod
+    def parse_cors_origins(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        v = values.get("BACKEND_CORS_ORIGINS")
+        if isinstance(v, str):
+            values["BACKEND_CORS_ORIGINS"] = [
+                item.strip() for item in v.split(",") if item.strip()
+            ]
+        return values
 
     DEPLOY_HOST: str = os.getenv("DEPLOY_HOST", "localhost")
     DEPLOY_PORT_RANGE_START: int = int(os.getenv("DEPLOY_PORT_RANGE_START", "8090"))

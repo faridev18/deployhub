@@ -1,15 +1,18 @@
-# Envs locaux (ne pas committer en production)
+# Envs locaux
 .env
 .env.local
+
+# Dépendances
+**/node_modules/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+
+# Build
+**/dist/
+**/.venv/
 
 # Editors
 .vscode/
 .idea/
 .DS_Store
-
-# Build artifacts
-node_modules/
-dist/
-__pycache__/
-*.pyc
-*.pyo
