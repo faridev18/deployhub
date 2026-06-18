@@ -223,10 +223,20 @@ class DeploymentService:
 
         crud.deployment.set_status(self.db, deployment=deployment, status="starting")
 
+        container_name = f"deployhub-{deployment.slug}"
+        try:
+            existing_container = self.docker_client.containers.get(container_name)
+            logger.info("Removing existing container with name %s to avoid 409 conflict", container_name)
+            existing_container.remove(force=True)
+        except docker.errors.NotFound:
+            pass
+        except Exception as exc:
+            logger.warning("Failed to remove existing container %s: %s", container_name, exc)
+
         run_kwargs = dict(
             detach=True,
             environment=deployment.env_vars or {},
-            name=f"deployhub-{deployment.slug}",
+            name=container_name,
             labels={"deployhub.deployment_id": str(deployment.id)},
         )
         if exposed_port:
@@ -247,12 +257,17 @@ class DeploymentService:
 
     def _get_container(self, deployment: Deployment):
         self._require_docker()
-        if not deployment.container_id:
-            return None
-        try:
-            return self.docker_client.containers.get(deployment.container_id)
-        except docker.errors.NotFound:
-            return None
+        if deployment.container_id:
+            try:
+                return self.docker_client.containers.get(deployment.container_id)
+            except docker.errors.NotFound:
+                pass
+        if deployment.slug:
+            try:
+                return self.docker_client.containers.get(f"deployhub-{deployment.slug}")
+            except docker.errors.NotFound:
+                pass
+        return None
 
     def stop(self, deployment: Deployment) -> Deployment:
         container = self._get_container(deployment)
