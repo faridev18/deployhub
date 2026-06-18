@@ -135,6 +135,8 @@ def set_status(
     deployment.status = status
     if error_message is not None:
         deployment.error_message = error_message
+    elif status != "failed":
+        deployment.error_message = None
     if status == "running":
         deployment.last_deployed_at = datetime.utcnow()
     db.commit()

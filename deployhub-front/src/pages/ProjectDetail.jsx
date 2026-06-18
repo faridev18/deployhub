@@ -45,9 +45,26 @@ export default function ProjectDetail() {
   const navigate = useNavigate()
   const [project, setProject] = useState(null)
   const [builds, setBuilds] = useState([])
+  const [logs, setLogs] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [logsError, setLogsError] = useState(null)
+  const [logsLoading, setLogsLoading] = useState(false)
   const [actionLoading, setActionLoading] = useState(null)
+
+  const loadLogs = useCallback(async () => {
+    setLogsLoading(true)
+    setLogsError(null)
+    try {
+      const data = await deploymentsApi.logs(id, 500)
+      setLogs(typeof data?.logs === 'string' ? data.logs : '')
+    } catch (err) {
+      setLogs('')
+      setLogsError(err.response?.data?.detail || 'Impossible de charger les logs')
+    } finally {
+      setLogsLoading(false)
+    }
+  }, [id])
 
   const load = useCallback(async () => {
     try {
@@ -68,6 +85,10 @@ export default function ProjectDetail() {
   useEffect(() => {
     load()
   }, [load])
+
+  useEffect(() => {
+    loadLogs()
+  }, [loadLogs])
 
   // Polling tant qu'un build est en cours
   useEffect(() => {
@@ -176,52 +197,64 @@ export default function ProjectDetail() {
 
       {/* Actions */}
       <Card className="p-4">
-        <div className="flex flex-wrap gap-2">
-          <ActionButton
-            icon={Play}
-            label="Redémarrer"
-            onClick={() => runAction('restart', () => deploymentsApi.restart(id))}
-            loading={actionLoading === 'restart'}
-            disabled={!project.container_id}
-          />
-          <ActionButton
-            icon={Square}
-            label="Arrêter"
-            onClick={() => runAction('stop', () => deploymentsApi.stop(id))}
-            loading={actionLoading === 'stop'}
-            disabled={project.status === 'stopped'}
-          />
-          <ActionButton
-            icon={Hammer}
-            label="Reconstruire"
-            onClick={() => runAction('rebuild', () => deploymentsApi.rebuild(id))}
-            loading={actionLoading === 'rebuild'}
-          />
-          <ActionButton
-            icon={RefreshCw}
-            label="Rafraîchir"
-            onClick={load}
-          />
-          {project.source_type === 'github' && (
-            <ActionButton
-              icon={Copy}
-              label="Dupliquer"
-              onClick={() => runAction('duplicate', async () => {
-                const dup = await deploymentsApi.duplicate(id)
-                navigate(`/projects/${dup.id}`)
-                return project
-              })}
-              loading={actionLoading === 'duplicate'}
-            />
-          )}
-          <div className="flex-1" />
-          <ActionButton
-            icon={Trash2}
-            label="Supprimer"
-            variant="danger"
-            onClick={handleDelete}
-            loading={actionLoading === 'delete'}
-          />
+        <div className="space-y-4">
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Gestion du deploiement
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <ActionButton
+                icon={Play}
+                label="Redémarrer"
+                onClick={() => runAction('restart', () => deploymentsApi.restart(id))}
+                loading={actionLoading === 'restart'}
+                disabled={!project.container_id}
+              />
+              <ActionButton
+                icon={Square}
+                label="Arrêter"
+                onClick={() => runAction('stop', () => deploymentsApi.stop(id))}
+                loading={actionLoading === 'stop'}
+                disabled={project.status === 'stopped'}
+              />
+              <ActionButton
+                icon={Hammer}
+                label="Reconstruire"
+                onClick={() => runAction('rebuild', () => deploymentsApi.rebuild(id))}
+                loading={actionLoading === 'rebuild'}
+              />
+              <ActionButton icon={RefreshCw} label="Rafraîchir" onClick={load} />
+            </div>
+          </div>
+
+          <div className="border-t border-gray-100 pt-4">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Gestion du projet
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {project.source_type === 'github' && (
+                <ActionButton
+                  icon={Copy}
+                  label="Dupliquer"
+                  onClick={() =>
+                    runAction('duplicate', async () => {
+                      const dup = await deploymentsApi.duplicate(id)
+                      navigate(`/projects/${dup.id}`)
+                      return project
+                    })
+                  }
+                  loading={actionLoading === 'duplicate'}
+                />
+              )}
+              <ActionButton
+                icon={Trash2}
+                label="Supprimer"
+                variant="danger"
+                onClick={handleDelete}
+                loading={actionLoading === 'delete'}
+              />
+            </div>
+          </div>
         </div>
       </Card>
 
@@ -295,7 +328,7 @@ export default function ProjectDetail() {
                 </dd>
               </div>
             )}
-            {project.error_message && (
+            {project.status === 'failed' && project.error_message && (
               <div className="pt-3 border-t border-gray-100">
                 <dt className="text-red-600 font-medium mb-1">Erreur</dt>
                 <dd className="text-sm text-red-700 bg-red-50 p-2 rounded font-mono break-all">
@@ -360,6 +393,30 @@ export default function ProjectDetail() {
           )}
         </Card>
       </div>
+
+      <Card className="p-5">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="font-semibold text-gray-900">Logs du deploiement</h2>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={loadLogs}
+            disabled={logsLoading}
+          >
+            {logsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            Rafraichir les logs
+          </Button>
+        </div>
+
+        {logsError && (
+          <p className="mb-3 text-sm text-red-600">{logsError}</p>
+        )}
+
+        <pre className="max-h-96 overflow-auto rounded-lg bg-gray-900 p-4 text-xs text-gray-100">
+          {logs?.trim() || 'Aucun log disponible pour le moment.'}
+        </pre>
+      </Card>
     </div>
   )
 }

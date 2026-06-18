@@ -1,99 +1,163 @@
-import React from "react";
-import Card from "../components/Card";
-import Button from "../components/Button";
-import Badge from "../components/Badge";
-import { Settings, Trash2, LogOut, Clock, Cpu, Database } from "lucide-react";
+import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router'
+import Card from '../components/Card'
+import Button from '../components/Button'
+import Badge from '../components/Badge'
+import { Settings, LogOut, Clock, Cpu, Database, Loader2 } from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext'
+import { deploymentsApi } from '../api/deployments'
+
+function formatDate(dateValue) {
+  if (!dateValue) return '-'
+  return new Date(dateValue).toLocaleString('fr-FR', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function statusToLabel(status) {
+  if (status === 'running') return 'Succes'
+  if (status === 'failed') return 'Echec'
+  if (status === 'building') return 'En cours'
+  return status || 'Inconnu'
+}
+
+function statusToBadge(status) {
+  if (status === 'running') return 'success'
+  if (status === 'failed') return 'error'
+  if (status === 'building') return 'info'
+  return 'default'
+}
 
 export default function Profile() {
-  // Exemple de données utilisateurs (à remplacer par ton backend)
-  const user = {
-    username: "Lary",
-    email: "lary@example.com",
-    role: "Développeur",
-  };
+  const { user, logout } = useAuth()
+  const [deployments, setDeployments] = useState([])
+  const [stats, setStats] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
-  const history = [
-    { app: "App Docker 1", status: "Succès", date: "2026-02-10 14:32" },
-    { app: "App Docker 2", status: "Échec", date: "2026-02-11 09:15" },
-    { app: "App Docker 3", status: "Succès", date: "2026-02-12 18:47" },
-  ];
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const [items, statsData] = await Promise.all([deploymentsApi.list(), deploymentsApi.stats()])
+        setDeployments(items)
+        setStats(statsData)
+      } catch (err) {
+        setError(err.response?.data?.detail || 'Impossible de charger le profil')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    load()
+  }, [])
+
+  const history = useMemo(() => {
+    return [...deployments]
+      .sort((a, b) => {
+        const dateA = new Date(a.last_deployed_at || a.updated_at || a.created_at).getTime()
+        const dateB = new Date(b.last_deployed_at || b.updated_at || b.created_at).getTime()
+        return dateB - dateA
+      })
+      .slice(0, 8)
+      .map((item) => ({
+        id: item.id,
+        app: item.name,
+        status: item.status,
+        date: item.last_deployed_at || item.updated_at || item.created_at,
+      }))
+  }, [deployments])
 
   const quotas = [
-    { icon: Cpu, label: "CPU utilisé", value: "2/4 cores" },
-    { icon: Database, label: "Base de données", value: "1/2 instances" },
-    { icon: Clock, label: "Applications déployées", value: "3/5" },
-  ];
+    { icon: Cpu, label: 'Projets en execution', value: `${stats?.running ?? 0}/${stats?.total ?? 0}` },
+    { icon: Database, label: 'Builds en cours', value: `${stats?.building ?? 0}` },
+    { icon: Clock, label: 'Deployments en echec', value: `${stats?.failed ?? 0}` },
+  ]
 
   return (
-    <div className="min-h-screen bg-gray-50 px-4 sm:px-6 lg:px-8 py-12">
-      <div className="max-w-5xl mx-auto space-y-8">
-
-        {/* Informations utilisateur */}
+    <div className="min-h-screen bg-gray-50 px-4 py-12 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-5xl space-y-8">
         <Card className="p-8">
-          <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900 mb-1">
-                {user.username}
-              </h1>
-              <p className="text-gray-600">{user.email}</p>
-              <Badge status="info" className="mt-2">{user.role}</Badge>
+              <h1 className="mb-1 text-2xl font-bold text-gray-900">{user?.username || 'Utilisateur'}</h1>
+              <p className="text-gray-600">{user?.email || '-'}</p>
+              <div className="mt-2 flex gap-2">
+                <Badge status={user?.is_verified ? 'success' : 'warning'}>
+                  {user?.is_verified ? 'Email verifie' : 'Email non verifie'}
+                </Badge>
+                {user?.is_admin && <Badge status="info">Admin</Badge>}
+              </div>
             </div>
             <div className="flex gap-3">
-              <Button variant="secondary" size="sm">
-                <Settings className="w-4 h-4 mr-1" />
-                Paramètres
-              </Button>
-              <Button variant="danger" size="sm">
-                <Trash2 className="w-4 h-4 mr-1" />
-                Supprimer le compte
+              <Button variant="secondary" size="sm" as={Link} to="/dashboard">
+                <Settings className="mr-1 h-4 w-4" />
+                Tableau de bord
               </Button>
             </div>
           </div>
         </Card>
 
-        {/* Quotas */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {quotas.map((quota, index) => {
-            const Icon = quota.icon;
-            return (
-              <Card key={index} className="p-6 text-center">
-                <div className="flex items-center justify-center mb-3">
-                  <Icon className="w-6 h-6 text-emerald-500" />
-                </div>
-                <div className="text-lg font-semibold text-gray-900">{quota.value}</div>
-                <div className="text-sm text-gray-600">{quota.label}</div>
-              </Card>
-            );
-          })}
-        </div>
+        {error && (
+          <Card className="border-red-200 bg-red-50 p-4">
+            <p className="text-sm text-red-700">{error}</p>
+          </Card>
+        )}
 
-        {/* Historique d'utilisation */}
-        <Card className="p-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Historique des déploiements</h2>
-          <div className="divide-y divide-gray-200">
-            {history.map((item, index) => (
-              <div key={index} className="flex justify-between items-center py-3">
-                <div>
-                  <p className="font-medium text-gray-900">{item.app}</p>
-                  <p className="text-sm text-gray-500">{item.date}</p>
-                </div>
-                <Badge status={item.status === "Succès" ? "success" : "danger"}>
-                  {item.status}
-                </Badge>
-              </div>
-            ))}
+        {loading ? (
+          <div className="flex justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
           </div>
-        </Card>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+              {quotas.map((quota) => {
+                const Icon = quota.icon
+                return (
+                  <Card key={quota.label} className="p-6 text-center">
+                    <div className="mb-3 flex items-center justify-center">
+                      <Icon className="h-6 w-6 text-emerald-500" />
+                    </div>
+                    <div className="text-lg font-semibold text-gray-900">{quota.value}</div>
+                    <div className="text-sm text-gray-600">{quota.label}</div>
+                  </Card>
+                )
+              })}
+            </div>
 
-        {/* Déconnexion */}
+            <Card className="p-6">
+              <h2 className="mb-4 text-xl font-bold text-gray-900">Historique des deployments</h2>
+              {history.length === 0 ? (
+                <p className="text-sm text-gray-600">Aucun deploiement enregistre pour le moment.</p>
+              ) : (
+                <div className="divide-y divide-gray-200">
+                  {history.map((item) => (
+                    <div key={item.id} className="flex items-center justify-between py-3">
+                      <div>
+                        <p className="font-medium text-gray-900">{item.app}</p>
+                        <p className="text-sm text-gray-500">{formatDate(item.date)}</p>
+                      </div>
+                      <Badge status={statusToBadge(item.status)}>{statusToLabel(item.status)}</Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          </>
+        )}
+
         <div className="text-center">
-          <Button variant="outline" size="lg">
-            <LogOut className="w-5 h-5 mr-2" />
-            Se déconnecter
+          <Button variant="outline" size="lg" onClick={logout}>
+            <LogOut className="mr-2 h-5 w-5" />
+            Se deconnecter
           </Button>
         </div>
-
       </div>
     </div>
-  );
+  )
 }
